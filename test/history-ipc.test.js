@@ -14,6 +14,10 @@ test('install/restore IPC records all backends, not failures/cancels, and valida
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const main = path.resolve(__dirname, '../main.js');
   const realRequire = createRequire(main);
+  // Windows-shaped assertions below (native/feeder/optiscaler on a non-Proton
+  // tree). Run main.js under a win32 view so they keep testing that on Linux CI.
+  const win32 = Object.create(process);
+  Object.defineProperty(win32, 'platform', { value: 'win32' });
   const handlers = new Map();
   const game = path.join(root, 'game');
   const target = { path: path.join(game, 'Game.exe'), rel: 'Game.exe', bitness: 64, api: 'dxgi', apiLabel: 'DirectX 12' };
@@ -65,7 +69,7 @@ test('install/restore IPC records all backends, not failures/cancels, and valida
       }
     }
   };
-  const context = vm.createContext({ require: name => stubs[name] || realRequire(name), __dirname: path.dirname(main), process, Buffer, console });
+  const context = vm.createContext({ require: name => stubs[name] || realRequire(name), __dirname: path.dirname(main), process: win32, Buffer, console });
   vm.runInContext(fs.readFileSync(main, 'utf8'), context, { filename: main });
   vm.runInContext(`payload = () => ({ source: { feeder: { ok32: true, ok64: true } } }); companionAddons = () => [];`, context);
   const event = { sender: { send() {} } };

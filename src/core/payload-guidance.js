@@ -20,15 +20,30 @@ const path = require('node:path');
 // half-extracted folder survives one, and deleting it is the first thing to try.
 const PORTABLE_DIR = 'DLSS5-Swapper';
 
-function missingPayload({ packaged, resourcesPath, appRoot, portable = false, temp = null }) {
-  const directory = path.join(packaged ? resourcesPath : appRoot, 'payload');
+// Windows and Linux builds ship the same payload next to a different resources
+// root, and the advice differs: there is no portable self-extraction and no
+// antivirus quarantine story on Linux, where an incomplete package is instead
+// fixed by reinstalling it. Joining with the target platform's separator keeps
+// the message a path a person can actually paste.
+const joinFor = (platform, ...parts) => platform === 'win32'
+  ? path.win32.join(...parts)
+  : path.posix.join(...parts);
+
+function missingPayload({ packaged, resourcesPath, appRoot, portable = false, temp = null, platform = process.platform }) {
+  const directory = joinFor(platform, packaged ? resourcesPath : appRoot, 'payload');
   if (!packaged) {
     return {
       code: 'errPayloadMissing',
       message: `The payload is missing or incomplete at ${directory}. Run "npm run payload" from the project directory.`
     };
   }
-  const unpack = temp ? path.join(temp, PORTABLE_DIR) : '%TEMP%' + path.sep + PORTABLE_DIR;
+  if (platform !== 'win32') {
+    return {
+      code: 'errPayloadMissing',
+      message: `The files this app installs into games are missing from ${directory}. The application package looks incomplete or a file was removed from it - reinstall the app, then try again. No game files were changed.`
+    };
+  }
+  const unpack = temp ? path.win32.join(temp, PORTABLE_DIR) : '%TEMP%' + path.win32.sep + PORTABLE_DIR;
   const cause = portable
     ? `Close the app, delete ${unpack}, and start it again - the portable build re-extracts itself there each time, and it can be left half-finished. If it comes back, your antivirus is blocking the extraction: exclude that folder, or use the installer instead.`
     : `Your antivirus has most likely quarantined them - parts of the payload are unsigned native DLLs. Check its quarantine and restore them, exclude the app's folder, then install the app again.`;

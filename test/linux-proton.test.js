@@ -21,7 +21,9 @@ test('Linux Steam discovery finds Proton game libraries and their prefix', (t) =
   fs.writeFileSync(path.join(root, 'steamapps', 'libraryfolders.vdf'), `"libraryfolders"\n{\n"0"\n{\n"path" "${library.replace(/\\/g, '\\\\')}"\n}\n}`);
   fs.writeFileSync(path.join(apps, 'appmanifest_123.acf'), '"AppState" { "appid" "123" "name" "Example Game" "installdir" "Example Game" }');
 
-  const games = steam({ platform: 'linux', home });
+  // An isolated env: the real XDG_DATA_HOME would otherwise win over the fake
+  // home and point discovery at the developer's own Steam install.
+  const games = steam({ platform: 'linux', home, env: {} });
   assert.equal(games.length, 1);
   assert.equal(games[0].id, '123');
   assert.equal(games[0].protonPrefix, path.join(root, 'steamapps', 'compatdata', '123', 'pfx'));

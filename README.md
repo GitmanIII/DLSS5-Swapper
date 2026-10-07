@@ -25,6 +25,23 @@
 
 Both are on the latest release page, with `SHA256SUMS.txt` beside them.
 
+### Linux (CachyOS / Arch, Steam Proton)
+
+This fork adds a Linux build for Arch-based distros. Steam games launched with
+Proton are discovered through their Steam libraries, and the Windows ReShade
+setup runs **inside each game's own Proton prefix**. Native Linux games are
+never modified, and the Vulkan Feeder route is not available on Linux yet.
+Only Steam is discovered on Linux for now; Epic/GOG/Xbox stay Windows-only.
+
+```bash
+npm install
+npm run build:linux   # AppImage + .deb land in dist/
+```
+
+`npm run build:linux` runs the payload step first, which needs the DLSS 5 and
+ReShade sources on the machine (same sources the Windows build uses). See
+`scripts/collect-payload.js` for the expected folders.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/rakanki911/DLSS5-Swapper/7415065e5c5437441d0e0b0a0362d0ada6d86e15/docs/screenshots/01-home.png" alt="Home" width="100%">
 </p>
@@ -169,6 +186,11 @@ fiddling, you can buy me a coffee.
 
 <p><a href="https://buymeacoffee.com/rakanki911"><img height="44" src="https://cdn.buymeacoffee.com/buttons/v2/lato-yellow.png" alt="Buy me a coffee"></a></p>
 
+## Credits
+
+- **Windows original, DLSS 5 integration** — Rakan Alkhaldi.
+- **Linux port** (CachyOS / Arch + Steam Proton) — GitmanIII, built in partnership with OpenCode.
+
 ---
 
-Built by **Rakan Alkhaldi** · MIT · [Third-party credits and licences](THIRD_PARTY_NOTICES.md)
+Built by **Rakan Alkhaldi** · Linux port by **GitmanIII** with **OpenCode** · MIT · [Third-party credits and licences](THIRD_PARTY_NOTICES.md)

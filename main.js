@@ -1925,6 +1925,9 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
       companions,
       reshadeSetup: p.reshadeSetup,
       setupRunner: proton ? createSetupRunner(proton) : undefined,
+      // Under Proton the game's "Windows" is the prefix, so a fallback like
+      // System32 has to be resolved inside it rather than on the host.
+      protonPrefix: proton ? proton.prefix : null,
       vulkanLayerTarget: path.join(app.getPath('userData'), 'reshade-vulkan'),
       // DirectX 11 (#328) and the wrapped DirectX 8/9 titles that become
       // DirectX 11 inside dgVoodoo (#343). Not DirectX 12, which never loads

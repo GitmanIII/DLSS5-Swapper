@@ -441,7 +441,7 @@ async function applyFeeder(config, log) {
   manifest.game.apiLabel = config.apiLabel;
   manifest.game.emulator = emulator || null;
 
-  await retireOldShaderCompiler(manifest, gameDir, exeDir, log);
+  await retireOldShaderCompiler(manifest, gameDir, exeDir, log, pe.getFileVersion, shaderSystem32(config));
   const payloadByName = new Map(source.payload.map((file) => [file.name.toLowerCase(), file]));
   const neural = payloadByName.get('nvngx_dlssnr.dll');
   const dlss = payloadByName.get('nvngx_dlss.dll');
@@ -681,12 +681,26 @@ async function setAsideRivalConsumers(manifest, gameDir, dir, keep, log) {
 // Telling the person is not enough, so the file is retired into the backup the
 // same way any replaced file is, and Restore puts it back. Only ever when
 // Windows has a newer copy of its own to fall back on.
-async function retireOldShaderCompiler(manifest, gameDir, exeDir, log, readVersion = pe.getFileVersion) {
+// The stale compiler is retired only because a newer copy exists for the game
+// to fall back on. On Windows that copy is the host's System32; on Linux the
+// game runs inside its Proton prefix, so the prefix's own System32 is the
+// equivalent - and it is the one Wine actually loads.
+function shaderSystem32(config) {
+  const prefix = config && config.protonPrefix;
+  if (prefix) return path.join(prefix, 'drive_c', 'windows', 'system32');
+  if (process.env.SystemRoot) return path.join(process.env.SystemRoot, 'System32');
+  return process.platform === 'win32' ? 'C:\\Windows\\System32' : null;
+}
+
+async function retireOldShaderCompiler(manifest, gameDir, exeDir, log, readVersion = pe.getFileVersion, system32 = null) {
   const stale = compatibility.oldShaderCompiler(exeDir, readVersion);
   if (!stale) return false;
-  const system = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'D3DCompiler_47.dll');
-  // Without a working copy in Windows, removing the game's own would leave the
-  // game unable to compile anything at all. Leave it and say nothing.
+  const fallback = system32 || (process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32')
+    : process.platform === 'win32' ? 'C:\\Windows\\System32' : null);
+  // Without a working copy to fall back on, removing the game's own would
+  // leave it unable to compile anything at all. Leave it and say nothing.
+  if (!fallback) return false;
+  const system = path.join(fallback, 'D3DCompiler_47.dll');
   if (!fs.existsSync(system) || compatibility.oldShaderCompiler(path.dirname(system), readVersion)) return false;
 
   const rel = await trackBeforeWrite(manifest, gameDir, stale.file, { oldVersion: stale.version, kind: 'shaderCompiler' });
@@ -725,7 +739,7 @@ async function applySwap(config, onLog) {
   manifest.game.apiLabel = config.apiLabel;
   const setup = setupRunner || runSetup;
 
-  await retireOldShaderCompiler(manifest, gameDir, exeDir, log);
+  await retireOldShaderCompiler(manifest, gameDir, exeDir, log, pe.getFileVersion, shaderSystem32(config));
 
   const payloadByName = new Map(source.payload.map((f) => [f.name.toLowerCase(), f]));
   const existing = scan.dlssFiles.filter(file => /^nvngx_dlss(?:nr)?\.dll$/i.test(file.name));

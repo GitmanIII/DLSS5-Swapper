@@ -13,7 +13,12 @@ function error(code) { return Object.assign(new Error(code), { code }); }
 
 function safePath(root, rel) {
   if (typeof rel !== 'string' || !rel || path.isAbsolute(rel) || rel.includes(':')) throw error('errUnsafeTarget');
-  const dest = path.resolve(root, rel);
+  // Windows-authored relative paths use backslashes. On POSIX those are ordinary
+  // filename characters, so `..\..\Windows\System32\evil.ini` would otherwise
+  // sit lexically inside the game folder and pass the containment check. Treat
+  // both separators as separators so the escape is refused on every platform.
+  const normalized = rel.replace(/\\/g, '/');
+  const dest = path.resolve(root, normalized);
   const relative = path.relative(path.resolve(root), dest);
   if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw error('errUnsafeTarget');
   // Refuse junctions/symlinks, including the selected root. A lexical prefix

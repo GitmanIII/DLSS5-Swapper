@@ -12,10 +12,38 @@ function matchingProcesses(processes, gameDir, exePath) {
   return processes.filter(p => {
     if (p.ProcessId === process.pid) return false;
     if (p.ExecutablePath) return path.resolve(p.ExecutablePath).toLowerCase().startsWith(root);
+    // Linux has no protected-process path omission, but under Wine/Proton the
+    // reported executable can be the compatibility loader rather than the game,
+    // so the command line and working directory are the reliable evidence.
+    if (p.CommandLine && String(p.CommandLine).toLowerCase().includes(root)) return true;
+    if (p.WorkingDirectory && path.resolve(p.WorkingDirectory).toLowerCase().startsWith(root)) return true;
     // Protected processes may omit their path. Fail conservatively for a
     // matching executable/helper name, but not unrelated system processes.
     return [exePath ? path.basename(exePath).toLowerCase() : null, 'dlss5-feed-host64.exe'].includes(String(p.Name).toLowerCase());
   });
+}
+
+// Linux equivalent of the WMI process list: every /proc entry, with the
+// details the closed-game check reads. The game runs as an ordinary Linux
+// process under Proton, so its cmdline names the Windows executable and its
+// cwd sits inside the game folder.
+function linuxProcesses(proc = '/proc') {
+  const list = [];
+  let pids;
+  try { pids = fs.readdirSync(proc); } catch { return list; }
+  for (const pid of pids) {
+    if (!/^\d+$/.test(pid)) continue;
+    const base = path.join(proc, pid);
+    let cmdline;
+    try { cmdline = fs.readFileSync(path.join(base, 'cmdline'), 'latin1').replace(/\0/g, ' ').trim(); } catch { continue; }
+    let exe = null;
+    try { exe = fs.readlinkSync(path.join(base, 'exe')); } catch { /* kernel threads and gone processes */ }
+    let cwd = null;
+    try { cwd = fs.readlinkSync(path.join(base, 'cwd')); } catch { /* same */ }
+    const first = cmdline.split(' ')[0] || '';
+    list.push({ ProcessId: Number(pid), Name: exe ? path.basename(exe) : path.basename(first), ExecutablePath: exe, CommandLine: cmdline, WorkingDirectory: cwd });
+  }
+  return list;
 }
 // Windows keeps a running executable open for writing, so a file that can be
 // opened for writing is not the image of a running process. That is the
@@ -37,19 +65,27 @@ function executableLocked(exePath) {
   }
 }
 
-async function assertGameClosed(gameDir, exePath, runner = run, locked = executableLocked) {
+async function readProcesses(runner) {
+  // A test injects its own runner; keep honouring it verbatim on every OS so
+  // the Windows-shaped fixtures still describe the check.
+  if (runner !== run) return JSON.parse((await runner('', [])) || '[]');
+  if (process.platform !== 'win32') return linuxProcesses();
   const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
+  const output = await runner(powershell, ['-NoProfile', '-NonInteractive', '-Command',
+    "$ErrorActionPreference='Stop'; @(Get-CimInstance Win32_Process | Select-Object ProcessId,Name,ExecutablePath) | ConvertTo-Json -Compress"]);
+  return JSON.parse(output || '[]');
+}
+
+async function assertGameClosed(gameDir, exePath, runner = run, locked = executableLocked) {
   let data;
   try {
-    const output = await runner(powershell, ['-NoProfile', '-NonInteractive', '-Command',
-      "$ErrorActionPreference='Stop'; @(Get-CimInstance Win32_Process | Select-Object ProcessId,Name,ExecutablePath) | ConvertTo-Json -Compress"]);
-    data = JSON.parse(output || '[]');
+    data = await readProcesses(runner);
   } catch {
     // The process list is unavailable: PowerShell restricted by policy, a cold
-    // WMI call past its timeout, or a machine where it simply fails. This used
-    // to refuse the install outright, which is a diagnostic becoming a wall -
-    // people with a closed game could not install at all. Fall back to asking
-    // the executable itself.
+    // WMI call past its timeout, a /proc that cannot be read, or a machine
+    // where it simply fails. This used to refuse the install outright, which
+    // is a diagnostic becoming a wall - people with a closed game could not
+    // install at all. Fall back to asking the executable itself.
     if (exePath && locked(exePath)) {
       throw Object.assign(new Error('Close the game first: its executable is in use.'), { code: 'errGameRunning' });
     }
@@ -96,7 +132,10 @@ function driverSupported(rows) { return rows.some(row => blackwell(row) && drive
 function gpuSupported(rows) { return gpuModelSupported(rows) && driverSupported(rows); }
 async function gpuInfo(runner = run) {
   try {
-    const output = await runner('nvidia-smi.exe', ['--query-gpu=name,driver_version', '--format=csv,noheader']);
+    // nvidia-smi ships as a host binary on Linux and as nvidia-smi.exe on
+    // Windows. Proton does not change which driver the host exposes.
+    const binary = process.platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi';
+    const output = await runner(binary, ['--query-gpu=name,driver_version', '--format=csv,noheader']);
     return output.trim().split(/\r?\n/).filter(Boolean).map(line => {
       const [name, driver] = line.split(',').map(s => s.trim());
       return { name, driver };

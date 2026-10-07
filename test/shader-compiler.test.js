@@ -69,16 +69,21 @@ function game(t) {
   fs.writeFileSync(compiler, 'the compiler the game shipped');
   const manifest = beginManifest(gameDir, exePath, 'dxgi');
   manifest.route = 'feeder';
-  // Old beside the game, current in Windows - what the real machine looks like.
+  // Old beside the game, current in Windows - what the real machine looks
+  // like. On Linux the fallback lives in the game's Proton prefix, so the
+  // check takes the system directory as an argument and this stands in for it.
+  const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shader-system-'));
+  t.after(() => fs.rmSync(systemDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(systemDir, 'D3DCompiler_47.dll'), 'the current Windows copy');
   const version = (file) => path.dirname(file) === gameDir ? OLD : CURRENT;
-  return { gameDir, exePath, compiler, manifest, version };
+  return { gameDir, exePath, compiler, manifest, version, systemDir };
 }
 
 test('the install retires the stale compiler and Restore gives it back', async (t) => {
-  const { gameDir, compiler, manifest, version } = game(t);
+  const { gameDir, compiler, manifest, version, systemDir } = game(t);
   const said = [];
   const acted = await retireOldShaderCompiler(manifest, gameDir, gameDir,
-    (code, params) => said.push([code, params]), version);
+    (code, params) => said.push([code, params]), version, systemDir);
 
   assert.equal(acted, true);
   assert.equal(fs.existsSync(compiler), false, 'the game now loads the copy in System32');
@@ -92,8 +97,8 @@ test('the install retires the stale compiler and Restore gives it back', async (
 });
 
 test('a current compiler beside the game is left exactly where it is', async (t) => {
-  const { gameDir, compiler, manifest } = game(t);
-  const acted = await retireOldShaderCompiler(manifest, gameDir, gameDir, () => {}, () => CURRENT);
+  const { gameDir, compiler, manifest, systemDir } = game(t);
+  const acted = await retireOldShaderCompiler(manifest, gameDir, gameDir, () => {}, () => CURRENT, systemDir);
   assert.equal(acted, false);
   assert.equal(fs.existsSync(compiler), true);
   assert.deepEqual(manifest.replaced, []);
@@ -101,8 +106,8 @@ test('a current compiler beside the game is left exactly where it is', async (t)
 
 // Removing the game's own copy is only safe because Windows has a better one.
 test('without a usable copy in Windows the game keeps its own', async (t) => {
-  const { gameDir, compiler, manifest } = game(t);
-  const acted = await retireOldShaderCompiler(manifest, gameDir, gameDir, () => {}, () => OLD);
+  const { gameDir, compiler, manifest, systemDir } = game(t);
+  const acted = await retireOldShaderCompiler(manifest, gameDir, gameDir, () => {}, () => OLD, systemDir);
   assert.equal(acted, false, 'System32 reads as old too, so there is nothing better to fall back on');
   assert.equal(fs.existsSync(compiler), true);
   assert.deepEqual(manifest.replaced, []);
